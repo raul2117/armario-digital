@@ -1,0 +1,17 @@
+# Configuración con contraseñas: nunca se sube (hay config.example.php)
+config.php
+
+# Fotos que suben los usuarios
+uploads/*
+!uploads/.gitkeep
+
+# Servidor de despliegue de cada uno (lo crea desplegar.ps1 la primera vez)
+despliegue/servidor.txt
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.log
