@@ -79,13 +79,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirigir('cambiar_clave.php');
             }
             $temporal = generar_clave();
-            $pdo->prepare('UPDATE usuarios SET clave_hash = ?, debe_cambiar_clave = 1, clave_version = clave_version + 1, intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = ?')
+            $pdo->prepare('UPDATE usuarios SET clave_hash = ?, debe_cambiar_clave = 1, clave_version = clave_version + 1 WHERE id = ?')
                 ->execute([password_hash($temporal, PASSWORD_DEFAULT), $id]);
+            registrar_acceso($pdo, $id, $u['email'], true, 'desbloqueo');
             flash('success', 'Nueva contraseña para ' . $u['nombre'], $temporal);
             redirigir('usuarios.php');
 
         case 'desbloquear':
-            $pdo->prepare('UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = ?')->execute([$id]);
+            // Un registro de desbloqueo pone a cero los fallos de ese email en todos los equipos
+            registrar_acceso($pdo, $id, $u['email'], true, 'desbloqueo');
             flash('success', 'Cuenta desbloqueada');
             redirigir('usuarios.php');
 
@@ -127,7 +129,7 @@ if ($editar && !$errores) {
 $usuarios = $pdo->query('SELECT u.*, (SELECT COUNT(*) FROM prendas p WHERE p.usuario_id = u.id) AS n_prendas
                          FROM usuarios u ORDER BY u.rol = "admin" DESC, u.nombre')->fetchAll();
 $accesos = $pdo->query('SELECT a.*, u.nombre FROM accesos a LEFT JOIN usuarios u ON u.id = a.usuario_id ORDER BY a.id DESC LIMIT 25')->fetchAll();
-$motivos = ['clave' => 'Contraseña incorrecta', 'no_existe' => 'Email desconocido', 'bloqueado' => 'Cuenta bloqueada', 'inactivo' => 'Cuenta desactivada', 'ip_bloqueada' => 'Equipo bloqueado', 'instalacion' => 'Instalación'];
+$motivos = ['clave' => 'Contraseña incorrecta', 'no_existe' => 'Email desconocido', 'bloqueado' => 'Cuenta bloqueada', 'inactivo' => 'Cuenta desactivada', 'ip_bloqueada' => 'Equipo bloqueado', 'instalacion' => 'Instalación', 'desbloqueo' => 'Desbloqueo / clave nueva'];
 
 function cuando(?string $f): string
 {
@@ -184,7 +186,7 @@ require __DIR__ . '/includes/header.php';
         <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Prendas</th><th><span class="sr">Acciones</span></th></tr></thead>
         <tbody>
         <?php foreach ($usuarios as $u):
-            $bloq = $u['bloqueado_hasta'] && strtotime($u['bloqueado_hasta']) > time(); $yo = (int)$u['id'] === $UID; ?>
+            $bloq = (bool)ips_bloqueadas($pdo, $u['email']); $yo = (int)$u['id'] === $UID; ?>
           <tr<?= $editar && (int)$editar['id'] === (int)$u['id'] ? ' class="fila-activa"' : '' ?>>
             <td>
               <strong><?= h($u['nombre']) ?></strong><?= $yo ? ' <span class="badge">Tú</span>' : '' ?><br>
@@ -211,7 +213,8 @@ require __DIR__ . '/includes/header.php';
 
   <section class="panel ficha" id="form-usuario" style="flex:1 1 320px;min-width:0" aria-label="<?= $editar ? 'Gestionar usuario' : 'Nuevo usuario' ?>">
     <?php if ($editar):
-        $bloqE = $editar['bloqueado_hasta'] && strtotime($editar['bloqueado_hasta']) > time();
+        $ipsBloqE = ips_bloqueadas($pdo, $editar['email']);
+        $bloqE = (bool)$ipsBloqE;
         $yoE = (int)$editar['id'] === $UID; $idE = (int)$editar['id']; ?>
       <div class="ficha-cabecera">
         <span class="avatar" aria-hidden="true"><?= h(mb_strtoupper(mb_substr($editar['nombre'], 0, 1))) ?></span>
@@ -261,7 +264,7 @@ require __DIR__ . '/includes/header.php';
           <?php endif; ?>
         <?php endif; ?>
         <?php if ($bloqE): ?>
-          <?= accion('desbloquear', 'desbloquear', $idE, 'Desbloquear', 'Bloqueada por intentos fallidos hasta las ' . date('H:i', strtotime($editar['bloqueado_hasta']))) ?>
+          <?= accion('desbloquear', 'desbloquear', $idE, 'Desbloquear', 'Bloqueada por intentos fallidos desde ' . implode(', ', $ipsBloqE)) ?>
         <?php endif; ?>
         <?= accion('sesiones', 'sesiones', $idE, 'Cerrar sesiones abiertas', $yoE ? 'Saldrás en tus otros dispositivos' : 'Tendrá que volver a entrar en todos sus dispositivos') ?>
         <?php if (!$yoE): ?>
@@ -274,7 +277,7 @@ require __DIR__ . '/includes/header.php';
 
 <section class="panel">
   <h2 style="font-size:20px;margin-bottom:6px">Últimos accesos</h2>
-  <p style="margin:0 0 14px;color:var(--suave);font-size:14px">Tras <?= MAX_INTENTOS ?> fallos seguidos la cuenta se bloquea <?= MINUTOS_BLOQUEO ?> minutos. Se guardan 90 días.</p>
+  <p style="margin:0 0 14px;color:var(--suave);font-size:14px">Tras <?= MAX_INTENTOS ?> fallos seguidos desde un mismo equipo, ese equipo no puede entrar con esa cuenta durante <?= MINUTOS_BLOQUEO ?> minutos (desde los demás sí). Se guardan 90 días.</p>
   <div class="tabla-caja">
     <table class="tabla">
       <thead><tr><th>Fecha</th><th>Email</th><th>IP</th><th>Resultado</th></tr></thead>
@@ -284,7 +287,9 @@ require __DIR__ . '/includes/header.php';
           <td><small><?= h(cuando($a['fecha'])) ?></small></td>
           <td><?= h($a['email']) ?></td>
           <td><small><?= h($a['ip']) ?></small></td>
-          <td><?= $a['exito'] ? '<span class="badge badge-verde">Correcto</span>' : '<span class="badge badge-coral">' . h($motivos[$a['motivo']] ?? 'Fallido') . '</span>' ?></td>
+          <td><?php if ($a['motivo'] === 'desbloqueo'): ?><span class="badge"><?= h($motivos['desbloqueo']) ?></span>
+              <?php elseif ($a['exito']): ?><span class="badge badge-verde">Correcto</span>
+              <?php else: ?><span class="badge badge-coral"><?= h($motivos[$a['motivo']] ?? 'Fallido') ?></span><?php endif; ?></td>
         </tr>
       <?php endforeach; ?>
       <?php if (!$accesos): ?><tr><td colspan="4" style="color:var(--suave)">Sin registros todavía.</td></tr><?php endif; ?>

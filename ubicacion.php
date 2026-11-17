@@ -133,24 +133,4 @@ require __DIR__ . '/includes/header.php';
   <?php endif; ?>
 </div>
 
-<script>
-// La geolocalización del navegador solo está permitida en https (o localhost)
-(function () {
-  const ok = window.isSecureContext && 'geolocation' in navigator;
-  document.getElementById(ok ? 'geo' : 'geo-no').hidden = false;
-  if (!ok) return;
-  const btn = document.getElementById('btn-geo');
-  btn.addEventListener('click', () => {
-    btn.disabled = true;
-    navigator.geolocation.getCurrentPosition(pos => {
-      document.getElementById('geo-lat').value = pos.coords.latitude.toFixed(5);
-      document.getElementById('geo-lon').value = pos.coords.longitude.toFixed(5);
-      document.getElementById('form-geo').submit();
-    }, () => {
-      btn.disabled = false;
-      Swal.fire({ icon: 'info', title: 'No se pudo obtener tu ubicación', text: 'Revisa el permiso del navegador o búscala por nombre.', ...colores });
-    }, { timeout: 10000, maximumAge: 600000 });
-  });
-})();
-</script>
 <?php require __DIR__ . '/includes/footer.php'; ?>

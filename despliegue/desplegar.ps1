@@ -21,6 +21,12 @@ if (-not $Servidor) {
     }
 }
 
+# SweetAlert2 va incluido en el repositorio; si falta (copia antigua del proyecto), se descarga y se comprueba
+if (-not (Test-Path (Join-Path $origen "assets\vendor\sweetalert2\sweetalert2.all.min.js"))) {
+    & (Join-Path $PSScriptRoot "actualizar-sweetalert2.ps1")
+    if (-not $?) { Write-Host "No se pudo preparar SweetAlert2" -ForegroundColor Red; exit 1 }
+}
+
 Write-Host "==> Preparando $Servidor" -ForegroundColor Magenta
 ssh $Servidor "rm -rf /tmp/armario-deploy"
 if ($LASTEXITCODE -ne 0) { Write-Host "No se pudo conectar por SSH con $Servidor" -ForegroundColor Red; exit 1 }
@@ -33,4 +39,4 @@ Write-Host "==> Instalando" -ForegroundColor Magenta
 ssh -t $Servidor "bash /tmp/armario-deploy/despliegue/remoto.sh '$Destino'"
 if ($LASTEXITCODE -ne 0) { Write-Host "La instalación dio un error (mira los mensajes de arriba)" -ForegroundColor Red; exit 1 }
 
-Start-Process "http://$($Servidor.Split('@')[-1])/$(Split-Path -Leaf $Destino)/"
+Start-Process "https://$($Servidor.Split('@')[-1])/$(Split-Path -Leaf $Destino)/"

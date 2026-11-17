@@ -9,7 +9,10 @@ date_default_timezone_set('Europe/Madrid');
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
-header('Permissions-Policy: geolocation=(), microphone=()');
+header('Permissions-Policy: camera=(), geolocation=(self), microphone=()');
+// CSP: solo JavaScript propio (nada en línea ni de otros dominios). Los estilos en línea se permiten
+// porque la interfaz los usa en atributos style; las fuentes vienen de Google Fonts.
+header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
 
 // Sesión de 30 días, cookie solo accesible desde el servidor
 session_set_cookie_params([
@@ -20,8 +23,15 @@ session_set_cookie_params([
     'secure'   => !empty($_SERVER['HTTPS']),
 ]);
 ini_set('session.gc_maxlifetime', (string)(60 * 60 * 24 * 30));
+ini_set('session.use_strict_mode', '1');   // no acepta identificadores de sesión inventados
 session_name('armario_sesion');
 session_start();
+
+// El identificador de sesión se renueva una vez al día: una cookie robada deja de servir antes
+if (!empty($_SESSION['usuario_id']) && time() - (int)($_SESSION['renovada'] ?? 0) > 86400) {
+    session_regenerate_id(true);
+    $_SESSION['renovada'] = time();
+}
 
 try {
     $pdo = new PDO(

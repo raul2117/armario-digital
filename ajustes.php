@@ -38,7 +38,7 @@ $st = $pdo->prepare('SELECT ultimo_acceso FROM usuarios WHERE id = ?');
 $st->execute([$UID]);
 $ultimo = $st->fetchColumn();
 
-$st = $pdo->prepare('SELECT fecha, ip, exito FROM accesos WHERE usuario_id = ? ORDER BY id DESC LIMIT 5');
+$st = $pdo->prepare("SELECT fecha, ip, exito FROM accesos WHERE usuario_id = ? AND (motivo IS NULL OR motivo NOT IN ('desbloqueo', 'instalacion')) ORDER BY id DESC LIMIT 5");
 $st->execute([$UID]);
 $misAccesos = $st->fetchAll();
 

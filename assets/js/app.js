@@ -9,21 +9,30 @@ const colores = {
   get color() { return css('--tinta'); }
 };
 
-// Mensajes tras guardar/borrar
-if (window.FLASH && window.FLASH.clave) {
+// Mensajes tras guardar/borrar. Llegan como JSON en <script type="application/json" id="flash">
+// (no se ejecuta, así la política CSP puede prohibir todo JavaScript en línea).
+// IMPORTANTE: los textos con datos del usuario van siempre en titleText/text, nunca en title/html,
+// porque SweetAlert2 interpreta title y html como HTML.
+let FLASH = null;
+try {
+  const datosFlash = document.getElementById('flash');
+  if (datosFlash) FLASH = JSON.parse(datosFlash.textContent);
+} catch (e) { FLASH = null; }
+
+if (FLASH && FLASH.clave) {
   // Contraseña temporal: se muestra una sola vez para copiarla
   Swal.fire({
     icon: 'success',
-    title: window.FLASH.mensaje,
+    titleText: FLASH.mensaje,
     html: 'Contraseña temporal (solo se muestra ahora):<br><code style="display:inline-block;margin-top:10px;padding:10px 16px;border-radius:12px;background:#F5F3FF;font-size:22px;letter-spacing:1px;user-select:all"></code><br><small>Al entrar tendrá que cambiarla.</small>',
     confirmButtonText: 'Copiar y cerrar',
     ...colores,
-    didOpen: el => { el.querySelector('code').textContent = window.FLASH.clave; }
-  }).then(() => { if (navigator.clipboard) navigator.clipboard.writeText(window.FLASH.clave).catch(() => {}); });
-} else if (window.FLASH) {
+    didOpen: el => { el.querySelector('code').textContent = FLASH.clave; }
+  }).then(() => { if (navigator.clipboard) navigator.clipboard.writeText(FLASH.clave).catch(() => {}); });
+} else if (FLASH) {
   Swal.fire({
-    icon: window.FLASH.tipo,
-    title: window.FLASH.mensaje,
+    icon: ['success', 'error', 'warning', 'info', 'question'].includes(FLASH.tipo) ? FLASH.tipo : 'info',
+    titleText: FLASH.mensaje,
     timer: 2200,
     showConfirmButton: false,
     toast: true,
@@ -38,7 +47,7 @@ document.querySelectorAll('form[data-confirmar]').forEach(form => {
     if (form.dataset.ok) return;
     e.preventDefault();
     Swal.fire({
-      title: form.dataset.confirmar,
+      titleText: form.dataset.confirmar,
       text: form.dataset.texto || '',
       icon: 'warning',
       showCancelButton: true,
@@ -107,7 +116,7 @@ if (formOutfit) {
     const elegidas = [...formOutfit.querySelectorAll('.hueco input')].filter(i => i.value);
     if (elegidas.length < 2) {
       e.preventDefault();
-      Swal.fire({ icon: 'info', title: 'Elige al menos dos prendas', text: 'Toca las prendas de la izquierda para montar el outfit.', ...colores });
+      Swal.fire({ icon: 'info', titleText: 'Elige al menos dos prendas', text: 'Toca las prendas de la izquierda para montar el outfit.', ...colores });
     }
   });
 }
@@ -136,3 +145,24 @@ document.querySelectorAll('.tema-selector button').forEach(btn => {
     }
   });
 });
+
+// Ubicación del dispositivo (ubicacion.php). La geolocalización del navegador solo está permitida en https.
+const cajaGeo = document.getElementById('geo');
+if (cajaGeo) {
+  const ok = window.isSecureContext && 'geolocation' in navigator;
+  document.getElementById(ok ? 'geo' : 'geo-no').hidden = false;
+  const btnGeo = document.getElementById('btn-geo');
+  if (ok && btnGeo) {
+    btnGeo.addEventListener('click', () => {
+      btnGeo.disabled = true;
+      navigator.geolocation.getCurrentPosition(pos => {
+        document.getElementById('geo-lat').value = pos.coords.latitude.toFixed(5);
+        document.getElementById('geo-lon').value = pos.coords.longitude.toFixed(5);
+        document.getElementById('form-geo').submit();
+      }, () => {
+        btnGeo.disabled = false;
+        Swal.fire({ icon: 'info', titleText: 'No se pudo obtener tu ubicación', text: 'Revisa el permiso del navegador o búscala por nombre.', ...colores });
+      }, { timeout: 10000, maximumAge: 600000 });
+    });
+  }
+}

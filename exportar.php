@@ -12,19 +12,18 @@ $out = fopen('php://output', 'w');
 fwrite($out, "\xEF\xBB\xBF");
 fputcsv($out, ['Nombre', 'Categoría', 'Color', 'Temporada', 'Marca', 'Favorita', 'Veces usada', 'Última vez', 'Añadida', 'Notas'], ';');
 foreach ($st as $p) {
-    // Evita que Excel interprete como fórmula un texto que empiece por = + - @
-    $limpio = fn($v) => preg_match('/^[=+\-@]/', (string)$v) ? "'" . $v : $v;
-    fputcsv($out, [
-        $limpio($p['nombre']),
+    // csv_seguro() evita que Excel interprete como fórmula un texto que empiece por = + - @, tabulador o retorno
+    fputcsv($out, array_map('csv_seguro', [
+        $p['nombre'],
         $p['cat_nombre'],
         $p['color_hex'],
         TEMPORADAS[$p['temporada']] ?? $p['temporada'],
-        $limpio($p['marca']),
+        $p['marca'],
         $p['favorita'] ? 'Sí' : 'No',
         $p['veces_usada'],
         $p['ultima_vez'] ? date('d/m/Y', strtotime($p['ultima_vez'])) : '',
         date('d/m/Y', strtotime($p['creado_en'])),
-        $limpio($p['notas']),
-    ], ';');
+        $p['notas'],
+    ]), ';');
 }
 fclose($out);

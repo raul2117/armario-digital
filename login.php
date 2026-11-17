@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $st->execute([ip_cliente()]);
     $fallosIp = (int)$st->fetchColumn();
 
-    $st = $pdo->prepare('SELECT id, clave_hash, activo, clave_version, intentos_fallidos, bloqueado_hasta FROM usuarios WHERE email = ?');
+    $st = $pdo->prepare('SELECT id, clave_hash, activo, clave_version FROM usuarios WHERE email = ?');
     $st->execute([$email]);
     $u = $st->fetch();
 
@@ -37,16 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         password_verify($clave, '$2y$10$7QbmDAMtuDgcJ1rqWUU/L.jXVc61zuCQGihOfPYbBmip/QFQg/9V.'); // mismo tiempo de respuesta
         registrar_acceso($pdo, null, $email, false, 'no_existe');
         $error = $mensajeGenerico;
-    } elseif ($u['bloqueado_hasta'] && strtotime($u['bloqueado_hasta']) > time()) {
+    } elseif (fallos_email_ip($pdo, $email, ip_cliente()) >= MAX_INTENTOS) {
+        // Bloqueo solo para este email desde este equipo: desde otros dispositivos se puede seguir entrando
         registrar_acceso($pdo, (int)$u['id'], $email, false, 'bloqueado');
         $error = 'Demasiados intentos. Vuelve a probar dentro de unos minutos.';
     } elseif (!password_verify($clave, $u['clave_hash'])) {
-        $intentos = (int)$u['intentos_fallidos'] + 1;
-        if ($intentos >= MAX_INTENTOS) {
-            $pdo->prepare('UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NOW() + INTERVAL ' . MINUTOS_BLOQUEO . ' MINUTE WHERE id = ?')->execute([$u['id']]);
-        } else {
-            $pdo->prepare('UPDATE usuarios SET intentos_fallidos = ? WHERE id = ?')->execute([$intentos, $u['id']]);
-        }
         registrar_acceso($pdo, (int)$u['id'], $email, false, 'clave');
         $error = $mensajeGenerico;
     } elseif (!$u['activo']) {
@@ -56,11 +51,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (password_needs_rehash($u['clave_hash'], PASSWORD_DEFAULT)) {
             $pdo->prepare('UPDATE usuarios SET clave_hash = ? WHERE id = ?')->execute([password_hash($clave, PASSWORD_DEFAULT), $u['id']]);
         }
-        $pdo->prepare('UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL, ultimo_acceso = NOW() WHERE id = ?')->execute([$u['id']]);
+        $pdo->prepare('UPDATE usuarios SET ultimo_acceso = NOW() WHERE id = ?')->execute([$u['id']]);
         registrar_acceso($pdo, (int)$u['id'], $email, true);
         session_regenerate_id(true);
         $_SESSION['usuario_id'] = (int)$u['id'];
         $_SESSION['clave_version'] = (int)$u['clave_version'];
+        $_SESSION['renovada'] = time();
+        unset($_SESSION['csrf']);   // token CSRF nuevo para la sesión iniciada
         redirigir('index.php');
     }
     usleep(random_int(200000, 500000));
