@@ -4,7 +4,8 @@
 
 CREATE DATABASE IF NOT EXISTS armario CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'armario'@'localhost' IDENTIFIED BY 'cambia_esta_clave';
-GRANT ALL PRIVILEGES ON armario.* TO 'armario'@'localhost';
+-- Solo datos: las tablas las crea y actualiza root con este mismo archivo
+GRANT SELECT, INSERT, UPDATE, DELETE ON armario.* TO 'armario'@'localhost';
 FLUSH PRIVILEGES;
 
 USE armario;

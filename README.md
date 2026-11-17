@@ -29,7 +29,7 @@ El script de despliegue instala lo que falte en Debian, Raspberry Pi OS o Ubuntu
 1. Descarga o clona el repositorio.
 2. Haz doble clic en **`Desplegar.bat`**. La primera vez te pregunta el servidor SSH (por ejemplo `pi@192.168.1.50`) y lo guarda en `despliegue/servidor.txt`.
 3. El script copia la app a `/var/www/html/armario`, instala lo que falte, crea la base de datos con una contraseña aleatoria y configura Apache.
-4. Abre `http://IP-DEL-SERVIDOR/armario/` y crea la cuenta de administrador.
+4. Abre `https://IP-DEL-SERVIDOR/armario/` y crea la cuenta de administrador. El script crea un certificado propio, así que la primera vez el navegador avisa de que no es de confianza: acepta el aviso para esa dirección.
 
 Para actualizar, vuelve a ejecutar `Desplegar.bat`: se conservan los datos, las fotos y la configuración del servidor.
 
@@ -72,13 +72,18 @@ Cada usuario elige su ubicación buscando su ciudad o pueblo (o con la ubicació
 
 - No hay registro libre: solo el administrador crea cuentas. La primera cuenta se crea en la configuración inicial, que después se desactiva sola.
 - Contraseñas de al menos 10 caracteres con letras y números, guardadas con `password_hash` (bcrypt). Las contraseñas temporales obligan a cambiarlas al entrar.
-- Bloqueo de cuenta tras 5 fallos (15 minutos) y de equipo tras 20 fallos en 15 minutos. Registro de accesos de 90 días.
+- Tras 5 fallos seguidos con un email desde un mismo equipo, ese equipo queda bloqueado para esa cuenta 15 minutos (los demás dispositivos pueden seguir entrando, así nadie puede dejarte fuera a propósito). Un equipo con 20 fallos en 15 minutos queda bloqueado para cualquier cuenta. Registro de accesos de 90 días.
 - Al desactivar a alguien o cambiarle la contraseña se cierran sus sesiones.
-- Token CSRF en todos los formularios, consultas preparadas (PDO), cookies `HttpOnly` y `SameSite`, cabeceras contra *clickjacking* y *MIME sniffing*.
-- Las fotos se validan por tipo real, se renombran y se reducen; en `uploads/` PHP no se ejecuta. `includes/` y `herramientas/` no son accesibles desde la web.
+- Token CSRF en todos los formularios, consultas preparadas (PDO), cookies `HttpOnly`, `SameSite` y `Secure` (con https), identificador de sesión renovado cada día, cabeceras contra *clickjacking* y *MIME sniffing*.
+- Política de seguridad de contenidos (CSP): solo se ejecuta el JavaScript propio de la app, nada en línea ni de otros dominios. SweetAlert2 va incluido en `assets/vendor/` con una versión fija, sin depender de un CDN.
+- Los textos que escriben los usuarios nunca se interpretan como HTML, tampoco en los avisos de SweetAlert2 (se usan `titleText` y `text`).
+- `https` con certificado propio y redirección automática desde `http` (lo configura el script de despliegue).
+- El usuario de la base de datos de la app solo puede leer y escribir datos (`SELECT`, `INSERT`, `UPDATE`, `DELETE`).
+- Las fotos se validan por tipo real y por resolución (máximo 50 megapíxeles), se renombran y se reducen; en `uploads/` no se ejecuta nada (ni con mod_php ni con PHP-FPM). `includes/` y `herramientas/` no son accesibles desde la web.
+- El CSV exportado neutraliza los textos que Excel podría interpretar como fórmulas.
 - Cada usuario solo ve y modifica sus propios datos.
 
-Las fotos se sirven con un nombre aleatorio, pero no pasan por el login: si publicas la app en internet, conviene servirla por `https` y proteger también `uploads/`.
+Las fotos se sirven con un nombre aleatorio, pero no pasan por el login: si publicas la app en internet, conviene proteger también `uploads/` y usar un certificado de verdad (por ejemplo, Let's Encrypt).
 
 ## Estructura
 
@@ -93,10 +98,15 @@ Las fotos se sirven con un nombre aleatorio, pero no pasan por el login: si publ
 | `login.php`, `instalar.php`, `salir.php` | Entrar, configuración inicial y salir |
 | `api/` | Favoritas y tema (llamadas desde JavaScript) |
 | `includes/` | Arranque, funciones, el tiempo, cabeceras y pies |
-| `assets/` | `app.css` y `app.js` |
+| `assets/` | `app.css`, `app.js` y `vendor/` (SweetAlert2) |
 | `sql/schema.sql` | Base de datos (se puede ejecutar varias veces para actualizar) |
 | `herramientas/datos_prueba.php` | Datos de prueba (solo desde la terminal) |
 | `despliegue/` | Scripts de instalación y actualización |
+
+## Versiones
+
+- **1.1.0:** mejoras de seguridad: corregido un fallo que permitía a un usuario ejecutar código en la sesión del administrador a través de su nombre; CSP; SweetAlert2 incluido en la app; https; bloqueo por email y equipo; límite de resolución de las fotos; CSV más seguro; permisos mínimos en la base de datos.
+- **1.0.0:** primera versión pública.
 
 ## Pendiente
 
@@ -104,7 +114,7 @@ Las fotos se sirven con un nombre aleatorio, pero no pasan por el login: si publ
 
 ## Créditos y licencia
 
-- Avisos y confirmaciones: [SweetAlert2](https://sweetalert2.github.io/).
+- Avisos y confirmaciones: [SweetAlert2](https://sweetalert2.github.io/) (licencia MIT, incluido en `assets/vendor/sweetalert2/`).
 - Tipografías: Bricolage Grotesque y DM Sans (Google Fonts).
 - Datos del tiempo: [Open-Meteo](https://open-meteo.com/).
 

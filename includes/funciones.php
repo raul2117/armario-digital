@@ -1,5 +1,27 @@
 <?php
 
+/** Versión de la aplicación y de SweetAlert2 (alojado en assets/vendor, sin depender de un CDN) */
+const APP_VERSION = '1.1.0';
+const SWAL_VERSION = '11.26.25';
+
+/** Límites de las fotos subidas */
+const FOTO_MAX_MPX = 50;      // megapíxeles
+const FOTO_MAX_LADO = 12000;  // píxeles por lado
+
+/** Convierte un valor de php.ini como «128M» a bytes (-1 = sin límite) */
+function memoria_en_bytes(string $v): int
+{
+    $v = trim($v);
+    if ($v === '' || $v === '-1') return PHP_INT_MAX;
+    $n = (int)$v;
+    switch (strtolower(substr($v, -1))) {
+        case 'g': return $n * 1073741824;
+        case 'm': return $n * 1048576;
+        case 'k': return $n * 1024;
+    }
+    return $n;
+}
+
 function h($s): string
 {
     return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
@@ -98,9 +120,36 @@ const SQL_PRENDAS = 'SELECT p.*, c.nombre AS cat_nombre, c.slug AS cat_slug, c.c
 
 /* ---------- Usuarios y seguridad ---------- */
 
-const MAX_INTENTOS = 5;          // fallos seguidos antes de bloquear la cuenta
+const MAX_INTENTOS = 5;          // fallos seguidos con un email desde un mismo equipo antes de bloquearlo
 const MINUTOS_BLOQUEO = 15;
-const MAX_FALLOS_IP = 20;        // fallos desde una misma IP en 15 minutos
+const MAX_FALLOS_IP = 20;        // fallos desde una misma IP en 15 minutos (con cualquier email)
+
+/**
+ * Fallos recientes con este email desde esta IP, contados desde su último acceso correcto o desbloqueo.
+ * El bloqueo es por email + equipo: alguien que conozca tu email puede bloquearse a sí mismo,
+ * pero no puede dejarte a ti sin entrar desde tus dispositivos.
+ */
+function fallos_email_ip(PDO $pdo, string $email, string $ip): int
+{
+    $st = $pdo->prepare("SELECT COUNT(*) FROM accesos
+                         WHERE email = ? AND ip = ? AND exito = 0 AND motivo IN ('clave', 'bloqueado')
+                           AND fecha > NOW() - INTERVAL " . MINUTOS_BLOQUEO . " MINUTE
+                           AND id > COALESCE((SELECT MAX(id) FROM accesos WHERE email = ? AND (exito = 1 OR motivo = 'desbloqueo')), 0)");
+    $st->execute([$email, $ip, $email]);
+    return (int)$st->fetchColumn();
+}
+
+/** Equipos (IP) que ahora mismo tienen bloqueado este email */
+function ips_bloqueadas(PDO $pdo, string $email): array
+{
+    $st = $pdo->prepare("SELECT ip FROM accesos
+                         WHERE email = ? AND exito = 0 AND motivo IN ('clave', 'bloqueado')
+                           AND fecha > NOW() - INTERVAL " . MINUTOS_BLOQUEO . " MINUTE
+                           AND id > COALESCE((SELECT MAX(id) FROM accesos WHERE email = ? AND (exito = 1 OR motivo = 'desbloqueo')), 0)
+                         GROUP BY ip HAVING COUNT(*) >= " . MAX_INTENTOS);
+    $st->execute([$email, $email]);
+    return $st->fetchAll(PDO::FETCH_COLUMN);
+}
 
 function es_admin(?array $u): bool
 {
@@ -129,6 +178,14 @@ function validar_clave(string $clave, string $email = ''): ?string
     if (!preg_match('/[a-zA-Z]/', $clave) || !preg_match('/\d/', $clave)) return 'La contraseña debe tener letras y números.';
     if ($email !== '' && stripos($clave, strtok($email, '@')) !== false) return 'La contraseña no puede contener tu email.';
     return null;
+}
+
+/** Evita que Excel/LibreOffice interpreten como fórmula un texto del CSV (= + - @, tabulador o retorno) */
+function csv_seguro($v)
+{
+    if ($v === null) return '';
+    $v = (string)$v;
+    return preg_match('/^[=+\-@\t\r]/', $v) ? "'" . $v : $v;
 }
 
 /** Contraseña temporal legible (sin 0/O, 1/l) */

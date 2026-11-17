@@ -40,10 +40,25 @@ function guardar_foto(array $f, array &$errores): ?string
     if (!is_dir(UPLOAD_DIR)) {
         mkdir(UPLOAD_DIR, 0775, true);
     }
+    // Resolución: una imagen pequeña en MB pero enorme en píxeles agotaría la memoria al abrirla
+    $dim = @getimagesize($f['tmp_name']);
+    if (!$dim || $dim[0] < 1 || $dim[1] < 1) {
+        $errores[] = 'No se pudo leer la foto.';
+        return null;
+    }
+    if ($dim[0] > FOTO_MAX_LADO || $dim[1] > FOTO_MAX_LADO || $dim[0] * $dim[1] > FOTO_MAX_MPX * 1000000) {
+        $errores[] = 'La foto tiene demasiada resolución (máximo ' . FOTO_MAX_MPX . ' megapíxeles).';
+        return null;
+    }
     $nombre = date('Ymd') . '_' . bin2hex(random_bytes(6));
 
     // Con GD: girar según EXIF, reducir y guardar como JPG
     if (function_exists('imagecreatefromstring')) {
+        // Memoria suficiente para la foto original y la reducida (unos 5 bytes por píxel con margen)
+        $necesaria = (int)($dim[0] * $dim[1] * 5 + 64 * 1048576);
+        if (memoria_en_bytes(ini_get('memory_limit')) < $necesaria) {
+            @ini_set('memory_limit', (string)$necesaria);
+        }
         $img = @imagecreatefromstring(file_get_contents($f['tmp_name']));
         if ($img) {
             if ($mime === 'image/jpeg' && function_exists('exif_read_data')) {
